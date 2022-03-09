@@ -1,5 +1,6 @@
 library(rvest) # for scraping
 library(stringr) # for string manipulation
+library(stringi) # for string manipulation pt.2
 
 # Get NOVA publications html content
 scrape <- read_html("https://www.novasbe.unl.pt/en/faculty-research/research/publications")
@@ -29,8 +30,9 @@ for (article in articles) {
   
   # Get authors by spliting at ".," to separate authors and clean from all non-
   # alphanumeric characters except ","
-  article_authors_raw <- strsplit(article_info, ".,", fixed=TRUE)[[1]]
-  article_authors     <- str_replace_all(article_authors_raw, "[^[:alnum:],]", "")
+  article_authors_raw <- strsplit(article_info, ".,", fixed=TRUE)[[1]] 
+
+  article_authors     <- str_replace_all(article_authors_raw, "[^[:alnum:],]", "") %>% stri_trans_general(id = "Latin-ASCII")
   
   # Append authors to count publications tracker
   l_all_pubs <- c(l_all_pubs, article_authors)
@@ -61,12 +63,12 @@ df_pub_collab <- na.omit(df_pub_collab)
 rownames(df_pub_collab) <- NULL
 
 df_pub_collab
-#write.csv(df_pub_collab, "/Users/fynn/Desktop/nova_publications_collaborations.csv", row.names=FALSE)
+#write.csv(df_pub_collab, row.names=FALSE)
 
 #-------------------------------------------------------------------------------
 
 # Get NOVA authors by tag "strong"
-nova_authors_raw  <- accord_articles %>% html_nodes("strong") %>% html_text()
+nova_authors_raw  <- accord_articles %>% html_nodes("strong") %>% html_text() %>% stri_trans_general(id = "Latin-ASCII")
 
 # Remove all special characters except ","
 nova_authors_raw2 <- str_replace_all(nova_authors_raw, "[^[:alnum:],]", "")
@@ -90,5 +92,9 @@ colnames(df_total_pub_cnt) <- c("author", "count_publications")
 df_total_pub_cnt["nova_author"] = ifelse(df_total_pub_cnt$author %in% nova_authors, "yes", "no")
 
 df_total_pub_cnt[order(-df_total_pub_cnt$count_publications),]
-#write.csv(df_total_pub_cnt, "/Users/fynn/Desktop/nova_publications_totalcount.csv", row.names=FALSE)
+#write.csv(df_total_pub_cnt, row.names=FALSE)
 
+#-------------------------------------------------------------------------------
+
+# Save multiple objects as .Rdata file
+save(df_pub_collab, df_total_pub_cnt, file = "NovaNetworkData.RData")
