@@ -2,6 +2,10 @@ library(rvest) # for scraping
 library(stringr) # for string manipulation
 library(stringi) # for string manipulation pt.2
 library(shiny)
+library(ggplot2)
+library(data.table)
+library(lubridate)
+
 
 
 # Get NOVA publications html content
@@ -42,15 +46,15 @@ for (article in articles) {
 } 
 
 # Build data table from matrix
-df_pub_collab <- as.data.frame(m_pub_collab) 
-colnames(df_pub_collab) <- c("author", "title", "year")
+dt_pub_collab <- as.data.table(m_pub_collab) 
+colnames(dt_pub_collab) <- c("author", "title", "year")
 
 # Remove NA
-df_pub_collab <- na.omit(df_pub_collab)
-rownames(df_pub_collab) <- NULL
+dt_pub_collab <- na.omit(dt_pub_collab)
+rownames(dt_pub_collab) <- NULL
 
 # Remove mistakes (some authors that couldnt be split)
-#df_pub_collab <- df_pub_collab[! (df_pub_collab$author.count(",") > 1), ]
+#dt_pub_collab <- dt_pub_collab[! (dt_pub_collab$author.count(",") > 1), ]
 
 #-------------------------------------------------------------------------------
 
@@ -66,26 +70,51 @@ nova_authors_raw_3 <- Filter(function(x) str_count(x, ",") == 1, nova_authors_ra
 # Get unique nova authors
 nova_authors <- unique(nova_authors_raw_3)
 
-# Add nova authors column to df_pub_collab
-df_pub_collab$nova_author <- ifelse(df_pub_collab$author %in% nova_authors, "yes", "no")
+# Add nova authors column to dt_pub_collab
+dt_pub_collab$nova_author <- ifelse(dt_pub_collab$author %in% nova_authors, "yes", "no")
+
 
 #-------------------------------------------------------------------------------
+# Set "Accepted/ in press" to 2022 and create new column with "Accepted/ in press" info
+dt_pub_collab$accepted_inpress <- ifelse(dt_pub_collab$year == "Accepted/In press", "yes", "no")
+dt_pub_collab$year <- ifelse(dt_pub_collab$year == "Accepted/In press", "2022", dt_pub_collab$year)
 
-# Count number of publications per author
-pubs_count <- as.data.frame(table(df_pub_collab$author))
+# Remove "EXPH" assigned years and reclassify one instance
+dt_pub_collab <- dt_pub_collab[! (year == "EXPH"), ]
+dt_pub_collab$year <- ifelse(dt_pub_collab$year == "November 2013", "2013", dt_pub_collab$year)
+dt_pub_collab$year <- strtoi(dt_pub_collab$year, base=0L)
+#dt_pub_collab$year <- lubridate::ymd(dt_pub_collab$year, truncated = 2L)
+#dt_pub_collab$year <- as.Date((dt_pub_collab$year, format = "%Y")
 
-# Merge to df_pub_collab
-df_pub_collab <- merge(df_pub_collab, pubs_count, by.x="author", by.y="Var1")
-df_pub_collab
+
 
 #-------------------------------------------------------------------------------
 
 # Save object as .Rdata file
-save(df_pub_collab, file = "NovaNetworkData.RData")
+save(dt_pub_collab, file = "NovaNetworkData.RData")
 
-View(df_pub_collab)
+View(dt_pub_collab)
 
 #-------------------------------------------------------------------------------
+#analysis
+
+all.authors <- dt_pub_collab[, list(name=unique(author), type=TRUE)]
+all.titles <- dt_pub_collab[, list(name=unique(title), type=FALSE)]
+all.vertices <- rbind(all.authors, all.titles)
+
+g.thesis <- graph.data.frame(dt_pub_collab[, list(author, title)], directed=FALSE, vertices=all.vertices)
+summary(g.thesis) 
+g.authors <- bipartite.projection(g.thesis)$proj2
+summary(g.authors)
+plot(g.authors)
+
+#cum of titles per year
+dt_pub_collab[, n_titles := .N, by=author]
+dt_pub_collab[, n_authors := .N, by=list(title, year)]
+
+#plot
+ggplot() + geom_histogram(aes(x=dt_pub_collab[,list(unique(title),year)]$year), stat = "count")
+
 
 #Shiny app start
 
@@ -93,7 +122,7 @@ View(df_pub_collab)
 ui <- fluidPage(
   
   # App title ----
-  titlePanel("Hello Shiny!"),
+  titlePanel("Nova_publication_analysis"),
   
   # Sidebar layout with input and output definitions ----
   sidebarLayout(
@@ -101,14 +130,11 @@ ui <- fluidPage(
     # Sidebar panel for inputs ----
     sidebarPanel(
       
-      # Input: Slider for the number of bins ----
-      sliderInput(inputId = "bins",
-                  label = "Number of bins:",
-                  min = 1,
-                  max = 50,
-                  value = 30)
-      
-    ),
+      # Input: Specification of range within an year interval ----
+      sliderInput("year.range", "Range:",
+                  min = min(dt_pub_collab$year), max = max(dt_pub_collab$year),
+                  value = c(min(dt_pub_collab$year),max(dt_pub_collab$year))), step = 1,
+      ),
     
     # Main panel for displaying outputs ----
     mainPanel(
@@ -123,22 +149,18 @@ ui <- fluidPage(
 # Define server logic required to draw a histogram ----
 server <- function(input, output) {
   
-  # Histogram of the Old Faithful Geyser Data ----
-  # with requested number of bins
-  # This expression that generates a histogram is wrapped in a call
-  # to renderPlot to indicate that:
-  #
-  # 1. It is "reactive" and therefore should be automatically
-  #    re-executed when inputs (input$bins) change
-  # 2. Its output type is a plot
+ 
   output$distPlot <- renderPlot({
     
-    x    <- faithful$waiting
-    bins <- seq(min(x), max(x), length.out = input$bins + 1)
+    #range from year slicer inputed in new data table
+    year.range <- input$year.range
+    year.range.min <- min(year.range)
+    year.range.max <- max(year.range)
+    #new filtered datateble by range
+    dt_pub_collab_range <- dt_pub_collab[(year >= year.range.min) & (year <= year.range.max)]
     
-    hist(x, breaks = bins, col = "#75AADB", border = "white",
-         xlab = "Waiting time to next eruption (in mins)",
-         main = "Histogram of waiting times")
+    #poting histogram of titles per year
+    ggplot() + geom_histogram(aes(x=dt_pub_collab_range[,list(unique(title),year)]$year), stat = "count")
     
   })
   
