@@ -4,7 +4,7 @@ library(stringi) # for string manipulation pt.2
 library(shiny)
 library(ggplot2)
 library(data.table)
-library(lubridate)
+library(igraph)
 
 
 
@@ -12,111 +12,137 @@ library(lubridate)
 scrape <- read_html("https://www.novasbe.unl.pt/en/faculty-research/research/publications")
 
 # Get the two accordions for articles and books publications
-accord_articles <- scrape %>% html_nodes("[class='accordion js-accordion']") %>% .[1]
+accord.articles <- scrape %>% html_nodes("[class='accordion js-accordion']") %>% .[1]
 
 # Get raw articles html
-articles <- accord_articles %>% html_nodes("p") %>% html_text()
+articles <- accord.articles %>% html_nodes("p") %>% html_text()
 
 # Initialize final matrix
-m_pub_collab <- matrix(ncol=3)
+m.pub.collab <- matrix(ncol=3)
 
 # Iterate over all raw articles
 for (article in articles) {
   
   # Get year inbetween first brackets
-  article_year <- gsub("[\\(\\)]", "", regmatches(article, gregexpr("\\(.*?\\)", article))[[1]][1])
+  article.year <- gsub("[\\(\\)]", "", regmatches(article, gregexpr("\\(.*?\\)", article))[[1]][1])
   
   # Get only first part of article string until year
-  article_info <- strsplit(article, split=article_year)[[1]][1]
+  article.info <- strsplit(article, split=article.year)[[1]][1]
   
   # Get last part of article after year and remove first three characters
-  article_title <- sub("...", "",
-                       strsplit(article, split=article_year)[[1]][2])
+  article.title <- sub("...", "",
+                       strsplit(article, split=article.year)[[1]][2])
   
   # Get authors by spliting at ".," to separate authors and clean from all non-
   # alphanumeric characters except ","
-  article_authors_raw <- strsplit(article_info, ".,", fixed=TRUE)[[1]] 
-  article_authors     <- str_replace_all(article_authors_raw, "[^[:alnum:],]", "") %>% stri_trans_general(id = "Latin-ASCII")
+  article.authors.raw <- strsplit(article.info, ".,", fixed=TRUE)[[1]] 
+  article.authors     <- str_replace_all(article.authors.raw, "[^[:alnum:],]", "") %>% stri_trans_general(id = "Latin-ASCII")
   
   # Create sub-matrix for article
-  m_article <- cbind(article_authors, article_title, article_year)
+  m.article <- cbind(article.authors, article.title, article.year)
   
   # Append to final data frame
-  m_pub_collab <- rbind(m_pub_collab, m_article)
+  m.pub.collab <- rbind(m.pub.collab, m.article)
 } 
 
 # Build data table from matrix
-dt_pub_collab <- as.data.table(m_pub_collab) 
-colnames(dt_pub_collab) <- c("author", "title", "year")
+dt.pub.collab <- as.data.table(m.pub.collab) 
+colnames(dt.pub.collab) <- c("author", "title", "year")
 
 # Remove NA
-dt_pub_collab <- na.omit(dt_pub_collab)
-rownames(dt_pub_collab) <- NULL
+dt.pub.collab <- na.omit(dt.pub.collab)
+rownames(dt.pub.collab) <- NULL
 
 # Remove mistakes (some authors that couldnt be split)
-#dt_pub_collab <- dt_pub_collab[! (dt_pub_collab$author.count(",") > 1), ]
+#dt.pub.collab <- dt.pub.collab[! (dt.pub.collab$author.count(",") > 1), ]
 
 #-------------------------------------------------------------------------------
 
 # Get NOVA authors by tag "strong"
-nova_authors_raw  <- accord_articles %>% html_nodes("strong") %>% html_text() %>% stri_trans_general(id = "Latin-ASCII")
+nova.authors.raw  <- accord.articles %>% html_nodes("strong") %>% html_text() %>% stri_trans_general(id = "Latin-ASCII")
 
 # Remove all special characters except ","
-nova_authors_raw2 <- str_replace_all(nova_authors_raw, "[^[:alnum:],]", "")
+nova.authors.raw2 <- str_replace_all(nova.authors.raw, "[^[:alnum:],]", "")
 
 # Remove all instances with more than 1 "," (meaning there were two authors in strong tag)
-nova_authors_raw_3 <- Filter(function(x) str_count(x, ",") == 1, nova_authors_raw2)
+nova.authors.raw.3 <- Filter(function(x) str_count(x, ",") == 1, nova.authors.raw2)
 
 # Get unique nova authors
-nova_authors <- unique(nova_authors_raw_3)
+nova.authors <- unique(nova.authors.raw.3)
 
-# Add nova authors column to dt_pub_collab
-dt_pub_collab$nova_author <- ifelse(dt_pub_collab$author %in% nova_authors, "yes", "no")
+# Add nova authors column to dt.pub.collab
+dt.pub.collab$nova_author <- ifelse(dt.pub.collab$author %in% nova.authors, "yes", "no")
 
 
 #-------------------------------------------------------------------------------
 # Set "Accepted/ in press" to 2022 and create new column with "Accepted/ in press" info
-dt_pub_collab$accepted_inpress <- ifelse(dt_pub_collab$year == "Accepted/In press", "yes", "no")
-dt_pub_collab$year <- ifelse(dt_pub_collab$year == "Accepted/In press", "2022", dt_pub_collab$year)
+dt.pub.collab$accepted_inpress <- ifelse(dt.pub.collab$year == "Accepted/In press", "yes", "no")
+dt.pub.collab$year <- ifelse(dt.pub.collab$year == "Accepted/In press", "2022", dt.pub.collab$year)
 
 # Remove "EXPH" assigned years and reclassify one instance
-dt_pub_collab <- dt_pub_collab[! (year == "EXPH"), ]
-dt_pub_collab$year <- ifelse(dt_pub_collab$year == "November 2013", "2013", dt_pub_collab$year)
-dt_pub_collab$year <- strtoi(dt_pub_collab$year, base=0L)
-#dt_pub_collab$year <- lubridate::ymd(dt_pub_collab$year, truncated = 2L)
-#dt_pub_collab$year <- as.Date((dt_pub_collab$year, format = "%Y")
+dt.pub.collab <- dt.pub.collab[! (year == "EXPH"), ]
+dt.pub.collab$year <- ifelse(dt.pub.collab$year == "November 2013", "2013", dt.pub.collab$year)
+dt.pub.collab$year <- strtoi(dt.pub.collab$year, base=0L)
+#dt.pub.collab$year <- lubridate::ymd(dt.pub.collab$year, truncated = 2L)
+#dt.pub.collab$year <- as.Date((dt.pub.collab$year, format = "%Y")
 
 
 
 #-------------------------------------------------------------------------------
 
 # Save object as .Rdata file
-save(dt_pub_collab, file = "NovaNetworkData.RData")
+save(dt.pub.collab, file = "NovaNetworkData.RData")
 
-View(dt_pub_collab)
+View(dt.pub.collab)
 
 #-------------------------------------------------------------------------------
 #analysis
 
-all.authors <- dt_pub_collab[, list(name=unique(author), type=TRUE)]
-all.titles <- dt_pub_collab[, list(name=unique(title), type=FALSE)]
+all.authors <- dt.pub.collab[, list(name=unique(author), type=TRUE)]
+all.titles <- dt.pub.collab[, list(name=unique(title), type=FALSE)]
 all.vertices <- rbind(all.authors, all.titles)
 
-g.thesis <- graph.data.frame(dt_pub_collab[, list(author, title)], directed=FALSE, vertices=all.vertices)
+g.thesis <- graph.data.frame(dt.pub.collab[, list(author, title)], directed=FALSE, vertices=all.vertices)
 summary(g.thesis) 
 g.authors <- bipartite.projection(g.thesis)$proj2
 summary(g.authors)
 plot(g.authors)
 
 #cum of titles per year
-dt_pub_collab[, n_titles := .N, by=author]
-dt_pub_collab[, n_authors := .N, by=list(title, year)]
-
-#plot
-ggplot() + geom_histogram(aes(x=dt_pub_collab[,list(unique(title),year)]$year), stat = "count")
+dt.pub.collab[, n_titles := .N, by=author]
+dt.pub.collab[, n_authors := .N, by=list(title, year)]
 
 
-#Shiny app start
+#maarten------------------------------------------------------------------------
+
+###1. STATIC ANALYSIS DASHBOARD
+# This part does not need filtering, should just show up
+# in a section called "About the source dataset"
+dt.unique.authors <- unique(dt.pub.collab[, .(author, n_titles, nova_author)])
+
+#Number of unique authors considered in the network
+dt.unique.authors[, .N]
+
+#Number of NOVA Authors
+dt.unique.authors[nova_author == 'yes', length(author)]
+
+#Number of not-NOVA Authors
+dt.unique.authors[nova_author == 'no', length(author)]
+
+#Average number of publications per NOVA author in the network
+dt.unique.authors[nova_author == 'yes', mean(n_titles)]
+
+#Average number of publications per non-NOVA author in the network
+dt.unique.authors[nova_author == 'no', mean(n_titles)]
+
+#Average number of authors per paper
+dt.pub.collab[, .N, by= title][, mean(N)]
+
+
+
+
+
+#Shiny app start----------------------------------------------------------------
 
 # Define UI for app that draws a histogram ----
 ui <- fluidPage(
@@ -130,37 +156,126 @@ ui <- fluidPage(
     # Sidebar panel for inputs ----
     sidebarPanel(
       
+      #horizontal decoranation line
+      tags$hr(),
+      
+      #checkbox nova and not nova
+      checkboxInput("nova.authors", "Nova authors", TRUE),
+      checkboxInput("other.authors", "Other authors", TRUE),
+      
       # Input: Specification of range within an year interval ----
       sliderInput("year.range", "Range:",
-                  min = min(dt_pub_collab$year), max = max(dt_pub_collab$year),
-                  value = c(min(dt_pub_collab$year),max(dt_pub_collab$year))), step = 1,
+                  min = min(dt.pub.collab$year), max = max(dt.pub.collab$year),
+                  value = c(min(dt.pub.collab$year),max(dt.pub.collab$year))), step = 1,
       ),
     
     # Main panel for displaying outputs ----
     mainPanel(
+      #basic stats values
+      tableOutput("basic.analysis"),
       
       # Output: Histogram ----
-      plotOutput(outputId = "distPlot")
+      plotOutput(outputId = "works.year.plot"),
+      
+      # Output: Maarten shitty cumsum of publications
+      plotOutput(outputId = "cumsum.title.plot")
       
     )
   )
 )
 
 # Define server logic required to draw a histogram ----
-server <- function(input, output) {
+server <- function(input, output, session) {
   
- 
-  output$distPlot <- renderPlot({
+  #reactive expression to create filtered data table---------
+  dt <- reactive({
     
-    #range from year slicer inputed in new data table
+    #filtering of nova and non nova authors
+    #inputs
+    nova.authors <- input$nova.authors
+    other.authors <- input$other.authors
+    
+    #filtering nova authors
+    if (nova.authors == "TRUE") {
+      dt.pub.collab.nova.author <- dt.pub.collab[(nova_author == "yes")]
+    } else {
+      dt.pub.collab.nova.author <- dt.pub.collab[!(nova_author == "yes"),][!(nova_author == "no"),]
+    }
+    #filtering non nova authors
+    if (other.authors == "TRUE") {
+      dt.pub.collab.other.author <-  dt.pub.collab[nova_author == "no"]
+    } else {
+      dt.pub.collab.other.author <- dt.pub.collab[!(nova_author == "no"),][!(nova_author == "yes"),]
+    }
+    #appending them together
+    dt.pub.collab.author <- rbind(dt.pub.collab.nova.author, dt.pub.collab.other.author)
+    
+    
+    #range from year slicer inputted in new data table
     year.range <- input$year.range
     year.range.min <- min(year.range)
     year.range.max <- max(year.range)
-    #new filtered datateble by range
-    dt_pub_collab_range <- dt_pub_collab[(year >= year.range.min) & (year <= year.range.max)]
     
-    #poting histogram of titles per year
-    ggplot() + geom_histogram(aes(x=dt_pub_collab_range[,list(unique(title),year)]$year), stat = "count")
+    #new filtered data table by range
+    dt.pub.collab.range <- dt.pub.collab.author[(year >= year.range.min) & (year <= year.range.max)]
+    dt.pub.collab.range
+  })
+  
+  #table of basic analysis---------------------------------------
+  output$basic.analysis <- renderTable({
+    
+    #loading filtered reactive data table
+    dt.pub.collab.range <- dt()
+    
+    #unique table for analysis
+    dt.unique.authors <- unique(dt.pub.collab.range[, .(author, n_titles, nova_author)])
+    
+    #creating data frame from analysis
+    data.frame(
+      Name = c("Number of authors",
+               "Number of Nova authors",
+               "Number of other authors",
+               "Average number of publication per NOVA author",
+               "Average number of publications per non-NOVA author",
+               "Average number of authors per paper"),
+      
+      Value = as.character(c(dt.unique.authors[, .N],#Number of unique authors considered in the network
+                             #Number of NOVA Authors
+                             dt.unique.authors[nova_author == 'yes', length(author)],
+                             #Number of not-NOVA Authors
+                             dt.unique.authors[nova_author == 'no', length(author)],
+                             #Average number of publications per NOVA author in the network
+                             dt.unique.authors[nova_author == 'yes', mean(n_titles)],
+                             #Average number of publications per non-NOVA author in the network
+                             dt.unique.authors[nova_author == 'no', mean(n_titles)],
+                             #Average number of authors per paper
+                             dt.pub.collab[, .N, by= title][, mean(N)])),
+      stringsAsFactors = FALSE)
+  })
+  
+  
+  #histogram to plot output----------------------------------------
+  output$works.year.plot <- renderPlot({
+    
+    #loading filtered reactive data table
+    dt.pub.collab.range <- dt()
+    
+    #plotting histogram of titles per year
+    ggplot() + geom_histogram(aes(x=dt.pub.collab.range[,list(unique(title),year)]$year), stat = "count")
+    
+  })
+  
+  #cumsum plot of titles-------------------------------------------
+  output$cumsum.title.plot <- renderPlot({
+    #loading filtered reactive data table
+    dt.pub.collab.range <- dt()
+    
+    #Cumulative count of papers per year; excluding accepted/inpress and bad scrapes
+    dt.pub.collab.stats <- dt.pub.collab.range[, .(n_pub = length(unique(title))), by = year][order(year)]
+    dt.pub.collab.stats <- dt.pub.collab.stats[, csum_n_pub := cumsum(n_pub)]
+    ggplot(data=dt.pub.collab.stats[order(-year)], aes(x=year, y=csum_n_pub, group=1)) +
+      geom_line()+
+      geom_point()
     
   })
   
