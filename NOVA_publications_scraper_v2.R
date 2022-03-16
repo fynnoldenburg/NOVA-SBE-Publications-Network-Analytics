@@ -81,10 +81,9 @@ dt.pub.collab$year <- ifelse(dt.pub.collab$year == "Accepted/In press", "2022", 
 
 # Remove "EXPH" assigned years and reclassify one instance
 dt.pub.collab <- dt.pub.collab[! (year == "EXPH"), ]
+#remove on wrongly scriped date
 dt.pub.collab$year <- ifelse(dt.pub.collab$year == "November 2013", "2013", dt.pub.collab$year)
-dt.pub.collab$year <- strtoi(dt.pub.collab$year, base=0L)
-#dt.pub.collab$year <- lubridate::ymd(dt.pub.collab$year, truncated = 2L)
-#dt.pub.collab$year <- as.Date((dt.pub.collab$year, format = "%Y")
+
 
 
 
@@ -98,45 +97,43 @@ View(dt.pub.collab)
 #-------------------------------------------------------------------------------
 #analysis
 
-all.authors <- dt.pub.collab[, list(name=unique(author), type=TRUE)]
-all.titles <- dt.pub.collab[, list(name=unique(title), type=FALSE)]
-all.vertices <- rbind(all.authors, all.titles)
-
-g.thesis <- graph.data.frame(dt.pub.collab[, list(author, title)], directed=FALSE, vertices=all.vertices)
-summary(g.thesis) 
-g.authors <- bipartite.projection(g.thesis)$proj2
-summary(g.authors)
-plot(g.authors)
-
 #cum of titles per year
 dt.pub.collab[, n_titles := .N, by=author]
 dt.pub.collab[, n_authors := .N, by=list(title, year)]
 
-
 #maarten------------------------------------------------------------------------
 
-###1. STATIC ANALYSIS DASHBOARD
-# This part does not need filtering, should just show up
-# in a section called "About the source dataset"
-dt.unique.authors <- unique(dt.pub.collab[, .(author, n_titles, nova_author)])
 
-#Number of unique authors considered in the network
-dt.unique.authors[, .N]
+###3. Network Analysis (more elaborate) - DYANAMIC
+# This part does need filtering
+# Filter 1: YEAR INTERVAL
+# Filter 2: binwidth
+# Filter 3: DEGREE FILTER
 
-#Number of NOVA Authors
-dt.unique.authors[nova_author == 'yes', length(author)]
+#NOVA Authors and their interactions. Which NOVA profs might connect on a paper soon?
 
-#Number of not-NOVA Authors
-dt.unique.authors[nova_author == 'no', length(author)]
+dt.authors.nova <- dt.pub.collab[nova_author == 'yes', list(name=unique(author), type=TRUE)]
+dt.titles.nova  <- dt.pub.collab[nova_author == 'yes', list(name=unique(title), type=FALSE)]
+dt.vertices.nova  <- rbind(dt.authors.nova, dt.titles.nova)
 
-#Average number of publications per NOVA author in the network
-dt.unique.authors[nova_author == 'yes', mean(n_titles)]
+g.thesis.nova <- graph.data.frame(dt.pub.collab[nova_author == 'yes', list(author, title)], directed=FALSE, vertices=dt.vertices.nova)
+summary(g.thesis.nova) 
 
-#Average number of publications per non-NOVA author in the network
-dt.unique.authors[nova_author == 'no', mean(n_titles)]
+g.authors.nova <- bipartite.projection(g.thesis.nova)$proj2
 
-#Average number of authors per paper
-dt.pub.collab[, .N, by= title][, mean(N)]
+plot(g.authors.nova)
+
+m.predicted.edges <-  as.matrix(cocitation(g.authors.nova) * (1-get.adjacency(g.authors.nova)))
+g.predicted.edges <-  graph_from_adjacency_matrix(m.predicted.edges, mode = "undirected", weighted = TRUE)
+
+#Remove authors that have degree zero and thus no possible cooperation.
+Isolated = which(degree(g.predicted.edges)==0)
+G2 = delete.vertices(g.predicted.edges, Isolated)
+LO2 = LO[-Isolated,]
+plot(G2)
+
+#get edges where weight is high
+E(g.predicted.edges)[[ weight > 2 ]]
 
 
 
@@ -164,21 +161,57 @@ ui <- fluidPage(
       checkboxInput("other.authors", "Other authors", TRUE),
       
       # Input: Specification of range within an year interval ----
-      sliderInput("year.range", "Range:",
-                  min = min(dt.pub.collab$year), max = max(dt.pub.collab$year),
-                  value = c(min(dt.pub.collab$year),max(dt.pub.collab$year))), step = 1,
+      #save as integer, cause it made some mess in range step by 0.1 
+      sliderInput("year.range", "Range of years:",
+                  min = as.integer(min(dt.pub.collab$year)), max = as.integer(max(dt.pub.collab$year)),
+                  value = c(as.integer(min(dt.pub.collab$year)),as.integer(max(dt.pub.collab$year))), step = 1),
+      
+      #Input: Specify bin width with histogram graphs
+      sliderInput("bin.width", "Bin width:",
+                  min = 1, max = 8,
+                  value = 5, step = 0.1),
+      
+      #Inputs: degree slicer
+      sliderInput("degree", "Degree:",
+                  min = 0, max = 25,
+                  value = 25),
       ),
     
     # Main panel for displaying outputs ----
     mainPanel(
-      #basic stats values
-      tableOutput("basic.analysis"),
       
-      # Output: Histogram ----
-      plotOutput(outputId = "works.year.plot"),
-      
-      # Output: Maarten shitty cumsum of publications
-      plotOutput(outputId = "cumsum.title.plot")
+      # Output: Tabset 1 analysis, 2 analysis, 3 analysis
+      tabsetPanel(type = "tabs",
+                  
+                  ###1. STATIC ANALYSIS DASHBOARD
+                  tabPanel("First analysis",
+                           
+                           #basic stats values
+                           tableOutput("basic.analysis"),
+                           
+                           # Output: Histogram ----
+                           plotOutput(outputId = "works.year.plot"),
+                           
+                           # Output: Maarten shitty cumsum of publications
+                           plotOutput(outputId = "cumsum.title.plot")
+                           ),
+                  
+                  ###2. EXPLORATORY ANALYSIS - DYANAMIC
+                  tabPanel("Second analysis", 
+                           
+                           # Output: Degree distribution
+                           plotOutput(outputId = "degree.distribution"),
+                           
+                           # Output: Degree centrality
+                           plotOutput(outputId = "degree.centrality"),
+                           
+                           #Output: Clustering coefficient
+                           plotOutput(outputId = "clustering.coefficient")
+                           ),
+                  
+                  tabPanel("Third analysis")
+                  )
+
       
     )
   )
@@ -187,7 +220,7 @@ ui <- fluidPage(
 # Define server logic required to draw a histogram ----
 server <- function(input, output, session) {
   
-  #reactive expression to create filtered data table---------
+  #reactive expression to create filtered data table------------------
   dt <- reactive({
     
     #filtering of nova and non nova authors
@@ -221,6 +254,23 @@ server <- function(input, output, session) {
     dt.pub.collab.range
   })
   
+  #reactive graphs filtered with new data table-----------------------
+  g.authors <- reactive({
+    
+    #loading filtered reactive data table
+    dt.pub.collab.range <- dt()
+    
+    #preparing vertices for bipartite projection
+    all.authors <- dt.pub.collab.range[, list(name=unique(author), type=TRUE)]
+    all.titles <- dt.pub.collab.range[, list(name=unique(title), type=FALSE)]
+    all.vertices <- rbind(all.authors, all.titles)
+    #bipartite projection
+    g.thesis <- graph.data.frame(dt.pub.collab.range[, list(author, title)], directed=FALSE, vertices=all.vertices)
+    g.authors <- bipartite.projection(g.thesis)$proj2
+    V(g.authors)$degree <- degree(g.authors)
+    g.authors
+    
+  })
   #table of basic analysis---------------------------------------
   output$basic.analysis <- renderTable({
     
@@ -230,7 +280,11 @@ server <- function(input, output, session) {
     #unique table for analysis
     dt.unique.authors <- unique(dt.pub.collab.range[, .(author, n_titles, nova_author)])
     
-    #creating data frame from analysis
+    
+    ####1. STATIC ANALYSIS DASHBOARD
+    # This part does not need filtering, should just show up
+    # in a section called "About the source dataset"
+    #creating dataset for analysis
     data.frame(
       Name = c("Number of authors",
                "Number of Nova authors",
@@ -261,7 +315,8 @@ server <- function(input, output, session) {
     dt.pub.collab.range <- dt()
     
     #plotting histogram of titles per year
-    ggplot() + geom_histogram(aes(x=dt.pub.collab.range[,list(unique(title),year)]$year), stat = "count")
+    ggplot() + geom_histogram(aes(x=dt.pub.collab.range[,list(unique(title),year)]$year), stat = "count")+
+      labs(x = "Year")
     
   })
   
@@ -277,6 +332,45 @@ server <- function(input, output, session) {
       geom_line()+
       geom_point()
     
+  })
+  
+  
+  #histogram degree distribution--------------------------------------
+  output$degree.distribution <- renderPlot({
+    #filtering bin width
+    bin.width <- input$bin.width
+    
+    #adding filtered table by date and nova or not nova
+    g.authors <- g.authors()
+    
+    # Degree distribution histogram (filter1, filter2)
+    qplot(degree(g.authors), geom="histogram", binwidth = bin.width)
+  })
+  
+  #Authors with higher degree centrality------------------------------------
+  output$degree.centrality <- renderPlot({
+    
+    #adding filtered table by date and nova or not nova
+    g.authors <- g.authors()
+    
+    #input degree slicer
+    degree_slider <- input$degree
+    
+    # Identify and Plot the authors with highest degree centrality
+    g.authors.highest <- induced.subgraph(g.authors, vids = V(g.authors)$degree > degree_slider)
+    plot(g.authors.highest)
+  })
+  
+  
+  
+  #clustering coefficient plot----------------------------------------
+  output$clustering.coefficient <- renderPlot({
+    
+    #adding filtered table by date and nova or not nova
+    g.authors <- g.authors()
+    
+    # Clustering Coefficient distribution histogram (filter1 only)
+    qplot(transitivity(g.authors, type="local"), geom="histogram")
   })
   
 }
