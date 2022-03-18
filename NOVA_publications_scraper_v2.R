@@ -5,6 +5,8 @@ library(shiny)
 library(ggplot2)
 library(data.table)
 library(igraph)
+install.packages("tcltk")
+
 
 
 
@@ -92,51 +94,12 @@ dt.pub.collab$year <- ifelse(dt.pub.collab$year == "November 2013", "2013", dt.p
 # Save object as .Rdata file
 save(dt.pub.collab, file = "NovaNetworkData.RData")
 
-View(dt.pub.collab)
-
 #-------------------------------------------------------------------------------
 #analysis
 
 #cum of titles per year
 dt.pub.collab[, n_titles := .N, by=author]
 dt.pub.collab[, n_authors := .N, by=list(title, year)]
-
-#maarten------------------------------------------------------------------------
-
-
-###3. Network Analysis (more elaborate) - DYANAMIC
-# This part does need filtering
-# Filter 1: YEAR INTERVAL
-# Filter 2: binwidth
-# Filter 3: DEGREE FILTER
-
-#NOVA Authors and their interactions. Which NOVA profs might connect on a paper soon?
-
-dt.authors.nova <- dt.pub.collab[nova_author == 'yes', list(name=unique(author), type=TRUE)]
-dt.titles.nova  <- dt.pub.collab[nova_author == 'yes', list(name=unique(title), type=FALSE)]
-dt.vertices.nova  <- rbind(dt.authors.nova, dt.titles.nova)
-
-g.thesis.nova <- graph.data.frame(dt.pub.collab[nova_author == 'yes', list(author, title)], directed=FALSE, vertices=dt.vertices.nova)
-summary(g.thesis.nova) 
-
-g.authors.nova <- bipartite.projection(g.thesis.nova)$proj2
-
-plot(g.authors.nova)
-
-m.predicted.edges <-  as.matrix(cocitation(g.authors.nova) * (1-get.adjacency(g.authors.nova)))
-g.predicted.edges <-  graph_from_adjacency_matrix(m.predicted.edges, mode = "undirected", weighted = TRUE)
-
-#Remove authors that have degree zero and thus no possible cooperation.
-Isolated = which(degree(g.predicted.edges)==0)
-G2 = delete.vertices(g.predicted.edges, Isolated)
-LO2 = LO[-Isolated,]
-plot(G2)
-
-#get edges where weight is high
-E(g.predicted.edges)[[ weight > 2 ]]
-
-
-
 
 
 #Shiny app start----------------------------------------------------------------
@@ -175,6 +138,10 @@ ui <- fluidPage(
       sliderInput("degree", "Degree:",
                   min = 0, max = 25,
                   value = 25),
+      #Inputs: weight threshold slicer
+      sliderInput("weight.threshold", "Weight threshold:",
+                  min = 1, max = 4,
+                  value = 3),
       ),
     
     # Main panel for displaying outputs ----
@@ -209,7 +176,15 @@ ui <- fluidPage(
                            plotOutput(outputId = "clustering.coefficient")
                            ),
                   
-                  tabPanel("Third analysis")
+                  tabPanel("Third analysis",
+                           
+                            # Output: Network analysis graph
+                            plotOutput(outputId = "network.analysis.graph"),
+                            
+                            #table of names (edges)
+                            tableOutput("network.edges")
+                          
+                          )
                   )
 
       
@@ -373,21 +348,91 @@ server <- function(input, output, session) {
     qplot(transitivity(g.authors, type="local"), geom="histogram")
   })
   
+  output$network.analysis.graph <- renderPlot({
+    
+    ###3. Network Analysis (more elaborate) - DYANAMIC
+    # This part does need filtering
+    # Filter 1: YEAR INTERVAL
+    # Filter 2: WEIGHT THRESHOLD SLIDER. Weight is a measure of possible connection between two profs.
+    
+    #NOVA Authors and their interactions. Which NOVA profs might connect on a paper soon?
+    
+    #loading range table
+    dt.pub.collab.range <- dt()
+    
+    #adding filtered table by date and nova or not nova
+    dt.authors.nova <- dt.pub.collab.range[nova_author == 'yes', list(name=unique(author), type=TRUE)]
+    dt.titles.nova  <- dt.pub.collab.range[nova_author == 'yes', list(name=unique(title), type=FALSE)]
+    dt.vertices.nova  <- rbind(dt.authors.nova, dt.titles.nova)
+    
+    g.thesis.nova <- graph.data.frame(dt.pub.collab.range[nova_author == 'yes', list(author, title)], directed=FALSE, vertices=dt.vertices.nova)
+    g.authors.nova <- bipartite.projection(g.thesis.nova)$proj2
+    
+    #adding weight threshold slider to the plot input
+    weight.threshold.slider <- input$weight.threshold
+    
+    #for test
+    #weight.threshold.slider <- 3
+    
+    m.predicted.edges <-  as.matrix(cocitation(g.authors.nova) * (1-get.adjacency(g.authors.nova)))
+    g.predicted.edges <-  graph_from_adjacency_matrix(m.predicted.edges, mode = "undirected", weighted = TRUE)
+    
+    #Remove authors that have degree zero and thus no possible cooperation.
+    Isolated = which(degree(g.predicted.edges)==0)
+    G2 = delete.vertices(g.predicted.edges, Isolated)
+    
+    #set width for plotting
+    E(G2)$width <- E(G2)$weight
+    
+    
+    E(G2)[which(E(G2)$weight < weight.threshold.slider)]$color <- "lightgrey"
+    E(G2)[which(E(G2)$weight >= weight.threshold.slider)]$color <- "green"
+    
+    tkplot(G2, canvas.width = 1400, canvas.height = 720, layout = layout_with_kk(G2, maxiter = 15000, kkconst = 140),
+           vertex.size = 3, vertex.label.dist=1)
+  })
+  
+  output$network.edges <- renderTable({
+    
+    #loading range table
+    dt.pub.collab.range <- dt()
+    dt.pub.collab.range <- dt.pub.collab
+    #adding filtered table by date and nova or not nova
+    dt.authors.nova <- dt.pub.collab.range[nova_author == 'yes', list(name=unique(author), type=TRUE)]
+    dt.titles.nova  <- dt.pub.collab.range[nova_author == 'yes', list(name=unique(title), type=FALSE)]
+    dt.vertices.nova  <- rbind(dt.authors.nova, dt.titles.nova)
+    
+    g.thesis.nova <- graph.data.frame(dt.pub.collab.range[nova_author == 'yes', list(author, title)], directed=FALSE, vertices=dt.vertices.nova)
+    g.authors.nova <- bipartite.projection(g.thesis.nova)$proj2
+    
+    #adding weight threshold slider to the plot input
+    weight.threshold.slider <- input$weight.threshold
+    
+    m.predicted.edges <-  as.matrix(cocitation(g.authors.nova) * (1-get.adjacency(g.authors.nova)))
+    g.predicted.edges <-  graph_from_adjacency_matrix(m.predicted.edges, mode = "undirected", weighted = TRUE)
+    
+    #get edges where weight is high, thus above threshold.
+    # This is basically a textual version of the marked edges in the graph.
+    data.frame(
+      Connection = as.character((c(as_ids(E(g.predicted.edges)[[ weight >= weight.threshold.slider ]]))),
+                           stringsAsFactors = FALSE)
+    )
+    
+  })
 }
 
 #examples for ideas
-
-runExample("01_hello")      # a histogram
-runExample("02_text")       # tables and data frames
-runExample("03_reactivity") # a reactive expression
-runExample("04_mpg")        # global variables
-runExample("05_sliders")    # slider bars
-runExample("06_tabsets")    # tabbed panels
-runExample("07_widgets")    # help text and submit buttons
-runExample("08_html")       # Shiny app built from HTML
-runExample("09_upload")     # file upload wizard
-runExample("10_download")   # file download wizard
-runExample("11_timer")      # an automated timer
+#runExample("01_hello")      # a histogram
+#runExample("02_text")       # tables and data frames
+#runExample("03_reactivity") # a reactive expression
+#runExample("04_mpg")        # global variables
+#runExample("05_sliders")    # slider bars
+#runExample("06_tabsets")    # tabbed panels
+#runExample("07_widgets")    # help text and submit buttons
+#runExample("08_html")       # Shiny app built from HTML
+#runExample("09_upload")     # file upload wizard
+#runExample("10_download")   # file download wizard
+#runExample("11_timer")      # an automated timer
 
 # See above for the definitions of ui and server
 
