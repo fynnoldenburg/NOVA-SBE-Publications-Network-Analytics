@@ -3,9 +3,11 @@ library(stringr) # for string manipulation
 library(stringi) # for string manipulation pt.2
 library(shiny)
 library(ggplot2)
+library(reshape2)
 library(data.table)
-library(igraph)
-install.packages("tcltk")
+library(tidyr)
+#install.packages("tcltk")
+library(shinythemes)
 
 
 
@@ -102,13 +104,28 @@ dt.pub.collab[, n_titles := .N, by=author]
 dt.pub.collab[, n_authors := .N, by=list(title, year)]
 
 
-#Shiny app start----------------------------------------------------------------
+#-------------------------------------------------------------------------------
+# SHINY APP LAYOUT
+#-------------------------------------------------------------------------------
 
 # Define UI for app that draws a histogram ----
 ui <- fluidPage(
+  # Set theme
+  theme = shinytheme("cosmo"),
+  
+  # Set slider color
+  tags$style(HTML(".js-irs-0 .irs-single, .js-irs-0 .irs-from, .js-irs-0 .irs-to, .js-irs-0 .irs-bar-edge, .js-irs-0 .irs-bar {background: #C6007E;
+                                                                                                                               border: #C6007E}")),
+  tags$style(HTML(".js-irs-1 .irs-single, .js-irs-1 .irs-from, .js-irs-1 .irs-to, .js-irs-1 .irs-bar-edge, .js-irs-1 .irs-bar {background: #C6007E;
+                                                                                                                               border: #C6007E}")),
+  tags$style(HTML(".js-irs-2 .irs-single, .js-irs-2 .irs-from, .js-irs-2 .irs-to, .js-irs-2 .irs-bar-edge, .js-irs-2 .irs-bar {background: #C6007E;
+                                                                                                                               border: #C6007E}")),
+  tags$style(HTML(".js-irs-3 .irs-single, .js-irs-3 .irs-from, .js-irs-3 .irs-to, .js-irs-3 .irs-bar-edge, .js-irs-3 .irs-bar {background: #C6007E;
+                                                                                                                               border: #C6007E}")),
+  
   
   # App title ----
-  titlePanel("Nova_publication_analysis"),
+  titlePanel(title = div(img(src="Title_NOVA_PNA.png"))),
   
   # Sidebar layout with input and output definitions ----
   sidebarLayout(
@@ -142,7 +159,7 @@ ui <- fluidPage(
       sliderInput("weight.threshold", "Weight threshold:",
                   min = 1, max = 4,
                   value = 3),
-      ),
+      ,width = 3),
     
     # Main panel for displaying outputs ----
     mainPanel(
@@ -151,31 +168,76 @@ ui <- fluidPage(
       tabsetPanel(type = "tabs",
                   
                   ###1. STATIC ANALYSIS DASHBOARD
-                  tabPanel("First analysis",
-                           
-                           #basic stats values
-                           tableOutput("basic.analysis"),
-                           
-                           # Output: Histogram ----
-                           plotOutput(outputId = "works.year.plot"),
-                           
-                           # Output: Maarten shitty cumsum of publications
-                           plotOutput(outputId = "cumsum.title.plot")
-                           ),
+                  tabPanel("Descriptive Analysis",
+                  
+                    fluidRow(         
+                            
+                      column(4,
+                             br(),
+                             #basic stats values
+                             tableOutput("basic.analysis")
+                            ),
+                             
+                      column(8,
+                             #Description
+                             br(),
+                             strong("Description:"),
+                             div("Our first analysis page displays some descriptive data statistics about
+                             the article publications of authors at NOVA SBE and related to NOVA SBE. You
+                                 are able to adjust the time range via the slider on the left panel."),
+                             br(),
+                             strong("Proposed configuration:"),
+                             div("Nova authors --> True, Other authors --> True, Range of years --> All, 
+                                 Bin width --> Not applicable, Degree --> Not applicable, Weight threshold --> Not applicable")
+                             )
+                    ),
+                    fluidRow(
+                      # Output: Histogram
+                      plotOutput(outputId = "works.year.plot"),
+                      
+                      # Output: Maartens cumsum of publications
+                      plotOutput(outputId = "cumsum.title.plot")
+                    )
+                      
+                  ),
                   
                   ###2. EXPLORATORY ANALYSIS - DYANAMIC
-                  tabPanel("Second analysis", 
-                           
-                           # Output: Degree distribution
-                           plotOutput(outputId = "degree.distribution"),
-                           
-                           # Output: Degree centrality
-                           plotOutput(outputId = "degree.centrality"),
-                           
-                           #Output: Clustering coefficient
-                           plotOutput(outputId = "clustering.coefficient")
-                           ),
+                  tabPanel("Network Exploration",
                   
+                    fluidRow(
+                      column(6,
+                             # Output: Degree centrality
+                             plotOutput(outputId = "degree.centrality",
+                                        width = "550px", height = "550px")
+                      ),
+                      column(6,
+                        #Description
+                        br(),
+                        strong("Description:"),
+                        div("Our second analysis page displays the network of authors at NOVA SBE and
+                            their collaborating authors from other institutions. You can zoom in on the
+                            clusters of the network to the left by selecting and double-clicking (double-
+                            click again to zoom back out again)."),
+                        br(),
+                        strong("Proposed configuration:"),
+                        div("Nova authors --> True, Other authors --> False, Range of years --> 2019-2022, 
+                            Bin width --> 1, Degree --> 3, Weight threshold --> Not applicable")
+                      )
+                    ),
+                    fluidRow(
+                      column(6,
+                        # Output: Degree distribution
+                        plotOutput(outputId = "degree.distribution", height = "200px")
+                      ),
+                      column(6,
+                        #Output: Clustering coefficient
+                        plotOutput(outputId = "clustering.coefficient", height = "200px")
+                      )
+                    )
+                  ),
+    
+                  
+                  ###3. NETWORK ANALYSIS
                   tabPanel("Third analysis",
                            
                             # Output: Network analysis graph
@@ -185,17 +247,19 @@ ui <- fluidPage(
                             tableOutput("network.edges")
                           
                           )
-                  )
-
-      
-    )
+      )
+    ,width = 9)
   )
 )
 
-# Define server logic required to draw a histogram ----
+#-------------------------------------------------------------------------------
+# SHINY SERVER
+#-------------------------------------------------------------------------------
+
+# Define server logic required to draw a histogram
 server <- function(input, output, session) {
   
-  #reactive expression to create filtered data table------------------
+  #reactive expression to create filtered data table
   dt <- reactive({
     
     #filtering of nova and non nova authors
@@ -261,12 +325,12 @@ server <- function(input, output, session) {
     # in a section called "About the source dataset"
     #creating dataset for analysis
     data.frame(
-      Name = c("Number of authors",
-               "Number of Nova authors",
-               "Number of other authors",
-               "Average number of publication per NOVA author",
-               "Average number of publications per non-NOVA author",
-               "Average number of authors per paper"),
+      Descriptive_Statistics = c("Number of authors",
+                                 "Number of Nova authors",
+                                 "Number of other authors",
+                                 "Average number of publication per NOVA author",
+                                 "Average number of publications per non-NOVA author",
+                                 "Average number of authors per paper"),
       
       Value = as.character(c(dt.unique.authors[, .N],#Number of unique authors considered in the network
                              #Number of NOVA Authors
@@ -274,11 +338,13 @@ server <- function(input, output, session) {
                              #Number of not-NOVA Authors
                              dt.unique.authors[nova_author == 'no', length(author)],
                              #Average number of publications per NOVA author in the network
-                             dt.unique.authors[nova_author == 'yes', mean(n_titles)],
+                             round(dt.unique.authors[nova_author == 'yes', mean(n_titles)], 
+                                   digits=2),
                              #Average number of publications per non-NOVA author in the network
-                             dt.unique.authors[nova_author == 'no', mean(n_titles)],
+                             round(dt.unique.authors[nova_author == 'no', mean(n_titles)],
+                                   digits=2),
                              #Average number of authors per paper
-                             dt.pub.collab[, .N, by= title][, mean(N)])),
+                             round(dt.pub.collab[, .N, by= title][, mean(N)])), digits=2),
       stringsAsFactors = FALSE)
   })
   
@@ -290,25 +356,47 @@ server <- function(input, output, session) {
     dt.pub.collab.range <- dt()
     
     #plotting histogram of titles per year
-    ggplot() + geom_histogram(aes(x=dt.pub.collab.range[,list(unique(title),year)]$year), stat = "count")+
-      labs(x = "Year")
+    ggplot() + geom_histogram(aes(x=dt.pub.collab.range[,list(unique(title),year)]$year), 
+                              fill = "#C6007E", stat = "count") +
+      theme(plot.title = element_text(hjust = 0.5, face = "bold")) +
+      labs(x="Year", y = "Count of publications") +
+      ggtitle("Number of Author Publications over the Years")
     
   })
   
+
   #cumsum plot of titles-------------------------------------------
   output$cumsum.title.plot <- renderPlot({
+    
     #loading filtered reactive data table
     dt.pub.collab.range <- dt()
     
-    #Cumulative count of papers per year; excluding accepted/inpress and bad scrapes
-    dt.pub.collab.stats <- dt.pub.collab.range[, .(n_pub = length(unique(title))), by = year][order(year)]
+    # Get publications and cumulative publications per year
+    dt.pub.collab.stats <- dt.pub.collab.range[, .(n_pub = length(unique(title))), 
+                                               by = year][order(year)]
     dt.pub.collab.stats <- dt.pub.collab.stats[, csum_n_pub := cumsum(n_pub)]
-    ggplot(data=dt.pub.collab.stats[order(-year)], aes(x=year, y=csum_n_pub, group=1)) +
-      geom_line()+
-      geom_point()
+
     
+    # Process & plot
+    df.plot <- tidyr::pivot_longer(dt.pub.collab.stats, cols=c("n_pub","csum_n_pub"),
+                                    names_to="variable", values_to="value")
+    # Colours
+    colours <- c(rep(c("black","#C6007E"), 11))
+    
+    ggplot(df.plot, aes(x=year, y=value, fill=variable)) +
+      geom_bar(stat="identity", position="dodge") + 
+      theme(legend.position="none", plot.title = element_text(hjust = 0.5, face = "bold")) +
+      labs(x="Year", y="Cumulative count of publications") +
+      scale_fill_manual(values=colours) +
+      ggtitle("Cumulative Number of Author Publications over the Years")
   })
   
+  
+  ###2. EXPLORATORY ANALYSIS - DYANAMIC
+  # This part does need filtering
+  # Filter 1: YEAR INTERVAL
+  # Filter 2: binwidth
+  # Filter 3: DEGREE FILTER
   
   #histogram degree distribution--------------------------------------
   output$degree.distribution <- renderPlot({
@@ -319,7 +407,9 @@ server <- function(input, output, session) {
     g.authors <- g.authors()
     
     # Degree distribution histogram (filter1, filter2)
-    qplot(degree(g.authors), geom="histogram", binwidth = bin.width)
+    qplot(degree(g.authors), geom="histogram", binwidth = bin.width) +
+      theme(plot.title = element_text(hjust = 0.5, face = "bold")) +
+      ggtitle("Degree Distribution of Author Publications")
   })
   
   #Authors with higher degree centrality------------------------------------
@@ -333,9 +423,9 @@ server <- function(input, output, session) {
     
     # Identify and Plot the authors with highest degree centrality
     g.authors.highest <- induced.subgraph(g.authors, vids = V(g.authors)$degree > degree_slider)
+
     plot(g.authors.highest)
   })
-  
   
   
   #clustering coefficient plot----------------------------------------
@@ -388,7 +478,7 @@ server <- function(input, output, session) {
     E(G2)[which(E(G2)$weight < weight.threshold.slider)]$color <- "lightgrey"
     E(G2)[which(E(G2)$weight >= weight.threshold.slider)]$color <- "green"
     
-    tkplot(G2, canvas.width = 1400, canvas.height = 720, layout = layout_with_kk(G2, maxiter = 15000, kkconst = 140),
+    plot(G2, canvas.width = 1400, canvas.height = 720, layout = layout_with_kk(G2, maxiter = 15000, kkconst = 140),
            vertex.size = 3, vertex.label.dist=1)
   })
   
