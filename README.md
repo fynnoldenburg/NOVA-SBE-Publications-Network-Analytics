@@ -3,7 +3,7 @@
 Final group project of the course 2623-Network Analytics-2122_T3.
 We are analysing the network of research article collaborations at NOVA School of Business and Economics and related institutions.
 
-![alt text](https://github.com/fynnoldenburg/NOVA-SBE-Publications-Network-Analytics/edit/main/Total_Network_Plot.png?raw=true)
+![alt text](https://github.com/fynnoldenburg/NOVA-SBE-Publications-Network-Analytics/blob/main/Total_Network_Plot.png?raw=true)
 
 **Methodology Description:**
 
