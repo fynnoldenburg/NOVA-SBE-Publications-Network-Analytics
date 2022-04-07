@@ -1,7 +1,6 @@
 # NOVA SBE Publications Network Analytics
 
-Final group project of the course 2623-Network Analytics-2122_T3.
-We are analysing the network of research article collaborations at NOVA School of Business and Economics and related institutions.
+*Final group project for the course Network Analytics. We are analyzing the network of research article collaborations at Nova School of Business & Economics and authors from related institutions.*
 
 ![alt text](https://github.com/fynnoldenburg/NOVA-SBE-Publications-Network-Analytics/blob/main/Total_Network_Plot.png?raw=true)
 
@@ -12,8 +11,3 @@ We get the raw data by scraping the "Articles" accordion element on the website 
 We are interested in the relationships of authors. Therefore, we create a bipartite projection in the authors space of our data. This graph gives us all authors as vertices while the edge weights between them indicate the number of articles the two authors have collaborated on.
 
 After experimenting with several configuartions we decided to display a network of authors with at least 10 collaborations to another author (gold). We also include external authors (grey) to give an indication on NOVA's external research network and the most active authors in that regard.
-
-
-## Interpretation:
-
-*To-Do --> Do clusters represent departments? (Economics, Finaince...), most active authors, most active collaborations, more and less external collaborations ...*
